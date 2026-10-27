@@ -1,0 +1,40 @@
+name: Nightly
+
+# Slower, non-blocking signals that don't belong on every PR:
+#  • AI visual oracle (paid, non-deterministic)
+#  • flake hunt: every UI test repeated to surface intermittent failures early
+on:
+  schedule:
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+
+jobs:
+  ai-checks:
+    runs-on: ubuntu-latest
+    if: ${{ vars.ENABLE_AI_CHECKS == 'true' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version-file: .nvmrc, cache: npm }
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npx playwright test --project=ai --reporter=github,html
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with: { name: ai-report, path: playwright-report, retention-days: 14 }
+
+  flake-hunt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version-file: .nvmrc, cache: npm }
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      # retries=0 so any intermittent failure is visible rather than retried away.
+      - run: npx playwright test --project=chromium --repeat-each=5 --retries=0 --reporter=github,html
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with: { name: flake-hunt-report, path: playwright-report, retention-days: 14 }
